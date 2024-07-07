@@ -106,11 +106,11 @@ def get_args_parser():
     parser.add_argument('--drop_path_rate', type=float, default=0.1, help="stochastic depth rate")
 
     # Multi-crop parameters
-    parser.add_argument('--global_crops_scale', type=float, nargs='+', default=(0.4, 1.),
+    parser.add_argument('--global_crops_scale', type=float, nargs='+', default=(0.14, 1.),
         help="""Scale range of the cropped image before resizing, relatively to the origin image.
         Used for large global view cropping. When disabling multi-crop (--local_crops_number 0), we
         recommand using a wider range of scale ("--global_crops_scale 0.14 1." for example)""")
-    parser.add_argument('--local_crops_number', type=int, default=4, help="""Number of small
+    parser.add_argument('--local_crops_number', type=int, default=0, help="""Number of small
         local views to generate. Set this parameter to 0 to disable multi-crop training.
         When disabling multi-crop we recommend to use "--global_crops_scale 0.14 1." """)
     parser.add_argument('--local_crops_scale', type=float, nargs='+', default=(0.05, 0.4),
@@ -575,8 +575,26 @@ class DataAugmentationDINO(object):
 
     def __call__(self, image, eeg, idx, dataset, local_crops_to_remove=2):
         crops = []
-        
-        
+
+        # one original image
+        crops.append(self.global_transfo1(image))
+
+        # one EEG
+        eeg_aug = dataset.resizeEEGToImageSize(index=idx)
+        eeg_aug = torch.from_numpy(eeg_aug)
+        crops.append(eeg_aug)
+
+        # crops.append(self.global_transfo2(image))
+
+        # for i in range(self.local_crops_number): # all crops
+        #     i +=1
+        #     if i%2==0: 
+        #         eeg_aug = dataset.resizeEEGToImageSize(index=idx)
+        #         eeg_aug = torch.from_numpy(eeg_aug)
+        #         crops.append(eeg_aug)
+        #     else:
+        #         crops.append(self.local_transfo(image))
+
         # settings Experiment alpha2 [2/29/24]: no much improvement in loss [10.62 --> 9.41] 300 epochs
         """
         Experiment alpha2 [2/29/24]:
@@ -584,16 +602,15 @@ class DataAugmentationDINO(object):
           	2. localcrops eeg
           	3. ALL SUBJECT EEGs data
         """
-        crops.append(self.global_transfo1(image))
-        crops.append(self.global_transfo2(image))
-        #crops.append(eeg)
+        # crops.append(self.global_transfo1(image))
+        # crops.append(self.global_transfo2(image))
+        # #crops.append(eeg)
         
-        for _ in range(self.local_crops_number): # all crops
-            eeg_aug = dataset.resizeEEGToImageSize(index=idx)
-            eeg_aug = torch.from_numpy(eeg_aug)
-            crops.append(eeg_aug)
-            #crops.append(self.local_transfo(image))
-        
+        # for _ in range(self.local_crops_number): # all crops
+        #     eeg_aug = dataset.resizeEEGToImageSize(index=idx)
+        #     eeg_aug = torch.from_numpy(eeg_aug)
+        #     crops.append(eeg_aug)
+        #     #crops.append(self.local_transfo(image))
         
         """
         # settings Experiment alpha1 [2/29/24]: 

@@ -1,6 +1,9 @@
 
 import subprocess
 
+# subprocess.run(["conda", "activate", "dinov2"])
+
+
 def run_script(gallery_subject, query_subject, query_gallery):
     command = [
         "python",

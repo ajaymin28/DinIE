@@ -37,14 +37,14 @@ class DESIGN:
 
 
 class FLAGS:
-    SUBJECT = 1
+    SUBJECT = 2
     EEG_DESIGN = DESIGN.RAPID_EVENT
     BLOCK_NUMBER = 1 # only applicable when BLOCK desing is used.
     Apply_high_low_pass_filter = False
-    LOW_PASS_CUT_FREQ = 14
-    HIGH_PASS_CUT_FREQ = 71
-    Replace_Rapid_Image_Sequence_With_Block_Sequence = False
-    take_alternate_DownSamples = True  # if provided true every DownRatio_for_timesamples'th will be taken from 2048 time samples else fixed first 512 samples will be taken
+    LOW_PASS_CUT_FREQ = 5
+    HIGH_PASS_CUT_FREQ = 96
+    Replace_Rapid_Image_Sequence_With_Block_Sequence = True
+    take_alternate_DownSamples = False  # if provided true every DownRatio_for_timesamples'th will be taken from 2048 time samples else fixed first 512 samples will be taken
     
     """
     Don't change any FLAGS below, unless you know what you are doing.
@@ -63,7 +63,7 @@ class FLAGS:
     Number_of_image_samples = 2000
     DownSampling_Frequency_ratio = 0.5
     DownRatio_for_timesamples = 4
-    BAD_CHANNELS = ["EXG1", "EXG2", "EXG3", "EXG4", "EXG5", "EXG6", "EXG7",  "EXG8", "Status"] # will be dropped
+    BAD_CHANNELS = ["EXG1", "EXG2", "EXG3", "EXG4", "EXG5", "EXG6", "EXG7",  "EXG8", "Status"] # will be dropped in final stage before saving
     STATUS_EVENT  = 65280
 
     image_class_mappings_file = "./data/image.pkl"
@@ -116,7 +116,7 @@ if __name__=="__main__":
     NumberOfSamples_n = FLAGS.Number_of_image_samples
     Sampling = int(raw.info["sfreq"]*FLAGS.DownSampling_Frequency_ratio) # 4096==> 2048
     TimeSamplesToTake = Sampling//FLAGS.DownRatio_for_timesamples # 2048/4 ==> 512
-    raw = raw.resample(sfreq=Sampling)
+    # raw = raw.resample(sfreq=Sampling)
 
     # Modify Events location
     """

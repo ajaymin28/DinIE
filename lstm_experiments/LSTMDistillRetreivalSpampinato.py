@@ -5,25 +5,71 @@ import torch.nn as nn
 import uuid
 import faiss
 import json
-from utils.PerilsEEGDataset import EEGDataset
+from utils.EEGDataset import EEGDataset
 import time
-from torchvision import transforms
+from torch.autograd import Variable
+from torchvision import transforms, datasets
+import torch.nn.functional as F
 import torch
 import torch.nn as nn
 import numpy as np
 from torch.utils.data import DataLoader
+
 from utils import utils
-from utils.Utilities import NpEncoder
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 print(device)
 
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
 
 class Parameters:
     ce_loss_weight = 0.50
     soft_target_loss_weight = 0.50
     alpha = 1
     temperature = 2
+
+
+def loss_fn_kd(student_logits, labels, teacher_logits, params):
+    """
+    Compute the knowledge-distillation (KD) loss given outputs, labels.
+    "Hyperparameters": temperature and alpha
+
+    NOTE: the KL Divergence for PyTorch comparing the softmaxs of teacher
+    and student expects the input tensor to be log probabilities! See Issue #2
+    """
+    alpha = params.alpha
+    T = params.temperature
+    # KD_loss = nn.KLDivLoss()(F.log_softmax(outputs/T, dim=1),
+    #                          F.softmax(teacher_outputs/T, dim=1)) * (alpha * T * T) + \
+    #           F.cross_entropy(outputs, labels) * (1. - alpha)
+
+    #Soften the student logits by applying softmax first and log() second
+    soft_targets = nn.functional.softmax(teacher_logits / T, dim=-1).to(device)
+    soft_prob = nn.functional.log_softmax(student_logits / T, dim=-1).to(device)
+
+    # Calculate the soft targets loss. Scaled by T**2 as suggested by the authors of the paper "Distilling the knowledge in a neural network"
+    soft_targets_loss = torch.sum(soft_targets * (soft_targets.log() - soft_prob)) / soft_prob.size()[0] * (T**2)
+
+    # ce_loss = F.cross_entropy(nn.functional.softmax(student_logits, dim=-1), nn.functional.softmax(teacher_logits, dim=-1))
+
+    mse_loss = F.smooth_l1_loss(student_logits, teacher_logits)
+                        
+    # Weighted sum of the two losses
+    loss = params.soft_target_loss_weight * soft_targets_loss + params.ce_loss_weight * mse_loss
+
+    # KD_loss = nn.KLDivLoss()(F.log_softmax(outputs/T, dim=1), F.softmax(teacher_outputs/T, dim=1))
+
+    return loss
+
+
 
 class FLAGS:
     num_workers = 4
@@ -93,29 +139,17 @@ if __name__=="__main__":
                         help='Directory to put logging.')
     parser.add_argument('--gallery_subject',
                         type=int,
-                        default=1,
+                        default=2,
                         choices=[0,1,2,3,4,5,6],
                         help='Subject Data to train')
     parser.add_argument('--query_subject',
                         type=int,
-                        default=1,
+                        default=2,
                         choices=[0,1,2,3,4,5,6],
                         help='Subject Data to train')
-    # parser.add_argument('--eeg_dataset',
-    #                     type=str,
-    #                     default="./data/eeg/theperils/spampinato-6-IMAGE_RAPID_RAW_with_mean_std_experimental_given_blockimageSeqToRapid.pth",
-    #                     help='Dataset to train')
-    # parser.add_argument('--eeg_dataset',
-    #                     type=str,
-    #                     default="./data/eeg/theperils/4thSampling/spampinato-2-IMAGE_RAPID_RAW_with_mean_std_experimental_given_blockimageSeqToRapid.pth",
-    #                     help='Dataset to train')
-    # parser.add_argument('--eeg_dataset',
-    #                     type=str,
-    #                     default="./data/eeg/theperils/4thSampling/spampinato-2-IMAGE_RAPID_RAW_with_mean_std.pth",
-    #                     help='Dataset to train')
     parser.add_argument('--eeg_dataset',
                         type=str,
-                        default="./data/eeg/theperils/4thSampling/spampinato-2-IMAGE_BLOCK_RAW_with_mean_std.pth",
+                        default="./data/eeg/spampinato/eeg_signals_raw_with_mean_std.pth",
                         help='Dataset to train')
     parser.add_argument('--images_root',
                         type=str,
@@ -123,7 +157,7 @@ if __name__=="__main__":
                         help='Dataset to train')
     parser.add_argument('--eeg_dataset_split',
                         type=str,
-                        default="./data/eeg/block_splits_by_image_all.pth",
+                        default="./data/eeg/spampinato/block_splits_by_image_all.pth",
                         help='Dataset split')
     parser.add_argument('--mode',
                         type=str,
@@ -131,7 +165,7 @@ if __name__=="__main__":
                         help='type of mode train or test')
     parser.add_argument('--custom_model_weights',
                         type=str,
-                        default="./logs/DINOvsDinIE/spampinato-1-IMAGE_RAPID_RAW_with_mean_std/lstm_dinov2_best_loss.pth",
+                        default="./logs/DINOvsDinIE/classLoss/eeg_signals_raw_with_mean_std/spampinato_lstm_dinov2_best_loss.pth",
                         help='custom model weights')
     parser.add_argument('--dino_base_model_weights',
                         type=str,
@@ -183,7 +217,7 @@ if __name__=="__main__":
     EPOCHS = FLAGS.num_epochs
     SaveModelOnEveryEPOCH = 100
     EEG_DATASET_PATH = FLAGS.eeg_dataset
-    # EEG_DATASET_SPLIT = "./data/eeg/block_splits_by_image_all.pth"
+    EEG_DATASET_SPLIT = FLAGS.eeg_dataset_split
 
     selectedDataset = "imagenet40"
 
@@ -206,10 +240,10 @@ if __name__=="__main__":
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),  
     ])
 
-    dataset = EEGDataset(subset="train",
+    dataset = EEGDataset(subset=FLAGS.search_gallery,
                          eeg_signals_path=EEG_DATASET_PATH,
-                         eeg_splits_path=None, 
-                         subject=SUBJECT,
+                         eeg_splits_path=EEG_DATASET_SPLIT, 
+                         subject=FLAGS.gallery_subject,
                          time_low=0,
                          imagesRoot=FLAGS.images_root,
                          time_high=480,
@@ -217,7 +251,24 @@ if __name__=="__main__":
                          convert_image_to_tensor=False,
                          apply_channel_wise_norm=False,
                          apply_norm_with_stds_and_means=True,
-                         preprocessin_fn=transform_image)
+                         preprocessin_fn=transform_image,
+                         inference_mode=True,
+                         onehotencode_label=False)
+    
+    test_dataset = EEGDataset(subset=FLAGS.query_gallery,
+                         eeg_signals_path=EEG_DATASET_PATH,
+                         eeg_splits_path=EEG_DATASET_SPLIT, 
+                         subject=FLAGS.query_subject,
+                         time_low=0,
+                         imagesRoot=FLAGS.images_root,
+                         time_high=480,
+                         exclude_subjects=[],
+                         convert_image_to_tensor=False,
+                         apply_channel_wise_norm=False,
+                         apply_norm_with_stds_and_means=True,
+                         preprocessin_fn=transform_image,
+                         inference_mode=True,
+                         onehotencode_label=False)
 
 
     eeg, label,image,i, image_features =  dataset[0]
@@ -233,17 +284,19 @@ if __name__=="__main__":
     print(model)
     if os.path.exists(FLAGS.custom_model_weights):
         print(f"Loading weights from: {FLAGS.custom_model_weights}")
-        model.load_state_dict(torch.load(FLAGS.custom_model_weights))
+        loaded_dict = torch.load(FLAGS.custom_model_weights)
+        model.load_state_dict(loaded_dict["state_dict"])
         print(f"Loaded weights from: {FLAGS.custom_model_weights}")
     model.to(device)
 
     time_t0 = time.perf_counter()
 
-    data_loader_train = DataLoader(dataset, batch_size=FLAGS.batch_size, shuffle=True)
-    dataset.transformEEGDataLSTM(lstm_model=model,device=device,replaceEEG=False)
 
-    generator1 = torch.Generator().manual_seed(43)
-    dataset, test_dataset = torch.utils.data.random_split(dataset, [0.8, 0.2], generator=generator1)
+    # data_loader_train = DataLoader(dataset, batch_size=FLAGS.batch_size, shuffle=True)
+    dataset.transformEEGDataLSTM(lstm_model=model,device=device,replaceEEG=False)
+    # dataset.extract_features(model=model, data_loader=data_loader_train, replace_eeg=False)
+
+    test_dataset.transformEEGDataLSTM(lstm_model=model,device=device,replaceEEG=False)
 
     print(len(dataset), len(test_dataset))
 
@@ -306,6 +359,10 @@ if __name__=="__main__":
         cosine_similarities_labels_classid = []
         cosine_similarities_images = []
 
+
+        # test_eeg, test_label, test_image, test_idx, img_f = test_dataset[query_idx]
+        #originalImage = test_dataset.getOriginalImage(test_idx)
+        # originalImage = test_dataset.getImagePath(test_idx)
         originalImage = ""
 
         if test_label["ClassName"] not in class_scores["data"]:
@@ -351,7 +408,7 @@ if __name__=="__main__":
             class_scores["data"][test_label["ClassName"]]["classIntanceRetrival"] +=classIntanceRetrival
             class_scores["data"][test_label["ClassName"]]["Predicted"].append(test_label["ClassId"])
         else:
-            class_scores["data"][test_label["ClassName"]]["Predicted"].append(dataset.dataset.class_str_to_id[cosine_similarities_labels_str[0]])
+            class_scores["data"][test_label["ClassName"]]["Predicted"].append(dataset.class_str_to_id[cosine_similarities_labels_str[0]])
 
             
         class_scores["data"][test_label["ClassName"]]["TotalRetrival"] +=TotalRetrival
@@ -376,12 +433,14 @@ if __name__=="__main__":
     Recall_Total = []
     Precision_Total = []
     for key, cls_data in class_scores["data"].items():
-        print(f"Class : {key} Recall: [{cls_data['Recall']}] Precision: [{cls_data['Precision']}]" )
+        # print(f"Class : {key} Recall: [{cls_data['Recall']}] Precision: [{cls_data['Precision']}]" )
         Recall_Total.append(cls_data["Recall"])
         Precision_Total.append(cls_data["Precision"])
 
     Recall_Total = np.array(Recall_Total).mean()
     Precision_Total = np.array(Precision_Total).mean()
+    
+    print(f"Subject :{FLAGS.query_subject} Subset: {FLAGS.query_gallery}")
     print(f"Overall Recall :{Recall_Total} Overall Precision: {Precision_Total}")
     
     
@@ -412,7 +471,7 @@ if __name__=="__main__":
                     TotalRetrival = classData['TotalRetrival']
                     Recall = classData['Recall']
                     Precision = classData['Precision']
-                    print(f"Class:{classN} TP: [{classData['TP']}] TotalClass: [{classData['TotalClass']}] classIntanceRetrival: [{classData['classIntanceRetrival']}] TotalRetrival: [{classData['TotalRetrival']}] ")
+                    # print(f"Class:{classN} TP: [{classData['TP']}] TotalClass: [{classData['TotalClass']}] classIntanceRetrival: [{classData['classIntanceRetrival']}] TotalRetrival: [{classData['TotalRetrival']}] ")
                     csv_file.write(f"\n {cnt}, {filename}, {classN}, {TotalClass},{TotalRetrival},{TP},{classIntanceRetrival},{Recall},{Precision}")
                     cnt +=1
     csv_file.write(f"\n\n,,,,,,,{Recall_Total},{Precision_Total}")                    
