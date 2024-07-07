@@ -5,12 +5,12 @@ import argparse
 import numpy as np
 import json
 import faiss                   # make faiss available
-from utils.EEGDataset import EEGDataset
-from utils.Caltech101Dataset import Caltech101Dataset
-from utils.CIFAR100Dataset import CIFAR100Dataset
-from utils.CIFAR10Dataset import CIFAR10Dataset
-from utils.ImageNetDataset import ImageNetDataset
-from utils.DomainnetDataset import DomainnetDataset
+from utils2.EEGDataset import EEGDataset
+from utils2.Caltech101Dataset import Caltech101Dataset
+from utils2.CIFAR100Dataset import CIFAR100Dataset
+from utils2.CIFAR10Dataset import CIFAR10Dataset
+from utils2.ImageNetDataset import ImageNetDataset
+from utils2.DomainnetDataset import DomainnetDataset
 
 # from utils.CustomModel import CustomModel
 # import torchvision.transforms as transforms 
@@ -19,9 +19,9 @@ from utils.DomainnetDataset import DomainnetDataset
 ROOT = "/lustre/fs1/home/jbhol/EEG/mytraining"
 #ROOT = "."
 
-from utils.DinoModel import DinoModel, dino_args
-from utils.Utilities import initlogger
-from utils import utils
+from utils2.DinoModel import DinoModel, dino_args
+from utils2.Utilities import initlogger
+from utils2 import utils
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):

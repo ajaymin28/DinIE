@@ -5,14 +5,14 @@ import argparse
 import numpy as np
 import json
 import faiss
-from utils.EEGDataset import EEGDataset
+from utils2.EEGDataset import EEGDataset
 # from utils.Caltech101Dataset import Caltech101Dataset
 # from utils.CustomModel import CustomModel
 # import torchvision.transforms as transforms 
 
 from sklearn.metrics.pairwise import cosine_similarity
-from utils.DinoModel import DinoModel, dino_args
-from utils.Utilities import initlogger
+from utils2.DinoModel import DinoModel, dino_args
+from utils2.Utilities import initlogger
 
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
